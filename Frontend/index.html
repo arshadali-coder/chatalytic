@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatlytic - WhatsApp Chat Analyzer</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <div class="container">
+            <!-- Welcome State with Upload -->
+            <div class="welcome-state" id="welcomeState">
+                <div class="logo-container">
+                    <div class="logo">
+                        <i class="fas fa-comments"></i>
+                    </div>
+                    <h1>Chatlytic</h1>
+                </div>
+                <p class="subtitle">Analyze and visualize your WhatsApp conversations with beautiful, interactive chat replays</p>
+                
+                <div class="features">
+                    <div class="feature-item">
+                        <div class="feature-icon">
+                            <i class="fas fa-chart-bar"></i>
+                        </div>
+                        <div class="feature-text">
+                            <div class="feature-title">Advanced Analytics</div>
+                            <div class="feature-desc">Deep insights into your conversations with visual metrics</div>
+                        </div>
+                    </div>
+                    <div class="feature-item">
+                        <div class="feature-icon">
+                            <i class="fas fa-shield-alt"></i>
+                        </div>
+                        <div class="feature-text">
+                            <div class="feature-title">Privacy First</div>
+                            <div class="feature-desc">Data processed locally, never stored on servers</div>
+                        </div>
+                    </div>
+                    <div class="feature-item">
+                        <div class="feature-icon">
+                            <i class="fas fa-palette"></i>
+                        </div>
+                        <div class="feature-text">
+                            <div class="feature-title">Modern Interface</div>
+                            <div class="feature-desc">Clean, intuitive design with smooth animations</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="upload-area" id="uploadArea">
+                    <div class="wrapper">
+                        <div class="icon"><i class="fas fa-file-archive"></i></div>                        
+                        <div class="container1">
+                            <div class="upload-text">Upload Chat Export</div>
+                            <div class="upload-subtext">Click to browse or drag & drop your ZIP file</div>
+                        </div>
+                    </div>                    
+                </div>
+
+                <div class="file-name" id="fileName"></div>
+                <button class="process-btn" id="processBtn" onclick="processFile()">
+                    <i class="fas fa-chart-line" style="margin-right: 8px;"></i> Analyze Chat
+                </button>
+                
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p class="loading-text">Processing your chat data...</p>
+                </div>
+
+                <input type="file" id="fileInput" accept=".zip" hidden>
+            </div>
+
+            <!-- Chat Screen -->
+            <div class="chat-screen" id="chatScreen">
+                <div class="chat-header">
+                    <div class="header-left">
+                        <button class="back-btn" onclick="showWelcome()">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <div class="chat-avatar">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <div class="chat-info">
+                            <h3 id="groupName">Chat Preview</h3>
+                            <p id="groupStatus">WhatsApp Chat Analysis</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-messages" id="chatMessages"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const uploadArea = document.getElementById('uploadArea');
+        const fileName = document.getElementById('fileName');
+        const processBtn = document.getElementById('processBtn');
+        const loading = document.getElementById('loading');
+
+        let selectedFile = null;
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragging');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragging');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragging');
+            const file = e.dataTransfer.files[0];
+            handleFileSelect(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            handleFileSelect(file);
+        });
+
+        function handleFileSelect(file) {
+            if (file && file.name.endsWith('.zip')) {
+                selectedFile = file;
+                fileName.innerHTML = `<i class="fas fa-file-archive" style="margin-right: 8px;"></i> ${file.name}`;
+                fileName.style.display = 'block';
+                processBtn.style.display = 'block';
+                
+                // Animate the upload area to show success
+                uploadArea.style.borderColor = 'var(--accent)';
+                uploadArea.style.background = 'rgba(76, 175, 80, 0.05)';
+            } else {
+                alert('Please select a valid ZIP file exported from WhatsApp');
+                uploadArea.style.borderColor = '';
+                uploadArea.style.background = '';
+            }
+        }
+
+        function processFile() {
+            if (!selectedFile) return;
+
+            const formData = new FormData();
+            formData.append("myFile", selectedFile);
+
+            processBtn.style.display = 'none';
+            loading.style.display = 'flex';
+
+            setTimeout(() => {
+                fetch("http://127.0.0.1:6969/upload", {
+                    method: "POST",
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(data => {
+                    console.log("Server Response:", data);
+                    renderChat(data.parsed_data);
+                    loading.style.display = 'none';
+                    showChatScreen();
+                })
+            
+            });
+        }
+
+        function showWelcome() {
+            document.getElementById('welcomeState').style.display = 'flex';
+            document.getElementById('chatScreen').style.display = 'none';
+            document.getElementById('chatMessages').innerHTML = '';           
+            selectedFile = null; 
+            fileName.style.display = 'block';
+            processBtn.style.display = 'block';            
+            fileInput.value = '';
+            
+            // Reset upload area styling
+            uploadArea.style.borderColor = '';
+            uploadArea.style.background = '';
+        }
+
+        function showChatScreen() {
+            document.getElementById('welcomeState').style.display = 'none';
+            document.getElementById('chatScreen').style.display = 'flex';
+        }
+
+        function renderChat(data) {
+            const chatMessages = document.getElementById('chatMessages');
+            chatMessages.innerHTML = '';
+
+            for (const entry of data) {
+                const dateDiv = document.createElement('div');
+                dateDiv.textContent = entry.date;
+                dateDiv.className = 'date-header';
+                chatMessages.appendChild(dateDiv);
+
+                for (const content of entry.content) {
+                    if (content.type === "message") {
+                        const messageElement = document.createElement('div');
+                        messageElement.className = `chat-message ${content.isCurrentUser ? 'sent' : 'received'}`;
+                        
+                        messageElement.innerHTML = `
+                            ${!content.isCurrentUser ? `<div class="sender-name">${content.sender}</div>` : ''}
+                            <div class="message-bubble">
+                                <div class="message-text">${content.message}</div>
+                                <div class="message-time">${content.timestamp}</div>
+                            </div>
+                        `;
+                        chatMessages.appendChild(messageElement);
+                    } else {
+                        const notificationElement = document.createElement('div');
+                        notificationElement.className = `system-notification notification-${content.type}`;
+                        notificationElement.innerHTML = `<div>${content.message}</div>`;
+                        chatMessages.appendChild(notificationElement);
+                    }
+                }
+            }
+
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+    </script>
+</body>
+</html>
