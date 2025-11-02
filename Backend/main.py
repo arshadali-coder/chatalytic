@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from collections import defaultdict
 from flask import Flask, request
+import requests
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -152,6 +153,77 @@ def upload_file():
         "user": username,
         "parsed_data": parsed_data
     }
+
+
+@app.route('/ai', methods=['POST'])
+def ai_proxy():
+    """Proxy endpoint to call Hugging Face Inference API from the server side.
+    Expects JSON: { message: string, chatSummary: string }
+    Requires environment variable HF_API_KEY to be set on the server.
+    """
+    try:
+        payload = request.get_json(force=True)
+    except Exception:
+        return {"error": "Invalid JSON payload"}, 400
+
+    user_message = payload.get('message', '')
+    chat_summary = payload.get('chatSummary', '')
+
+    hf_key = os.environ.get('HF_API_KEY')
+    if not hf_key:
+        return {"error": "HF_API_KEY not configured on server"}, 500
+
+    # Construct prompt for the model (keep it concise to avoid token limits)
+    prompt = (
+        "<s>[INST] You are a helpful WhatsApp chat analyzer assistant. Analyze the following chat data and answer the user's question.\n\n"
+        f"Chat Data:\n{chat_summary}\n\n"
+        f"User Question: {user_message}\n\n"
+        "Provide a clear, concise, and helpful answer based on the chat data. [/INST]"
+    )
+
+    hf_url = 'https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2'
+    headers = {
+        'Authorization': f'Bearer {hf_key}',
+        'Content-Type': 'application/json'
+    }
+
+    body = {
+        'inputs': prompt,
+        'parameters': {
+            'max_new_tokens': 500,
+            'temperature': 0.7,
+            'top_p': 0.95,
+            'return_full_text': False
+        }
+    }
+
+    try:
+        resp = requests.post(hf_url, headers=headers, json=body, timeout=60)
+    except requests.exceptions.RequestException as e:
+        return {"error": "Error contacting Hugging Face API", "detail": str(e)}, 502
+
+    # Forward non-200 responses
+    if not resp.ok:
+        # Return HF error body to help debugging (status code preserved)
+        return {"error": "Hugging Face API error", "status_code": resp.status_code, "detail": resp.text}, resp.status_code
+
+    try:
+        data = resp.json()
+    except ValueError:
+        return {"error": "Invalid JSON from Hugging Face", "detail": resp.text}, 502
+
+    # Attempt to extract generated text from common response shapes
+    generated = None
+    if isinstance(data, list) and len(data) > 0:
+        # Many HF Inference responses return a list with generated_text
+        generated = data[0].get('generated_text') or data[0].get('generated_text')
+    elif isinstance(data, dict) and 'generated_text' in data:
+        generated = data.get('generated_text')
+    else:
+        # As a fallback, include full response
+        generated = json.dumps(data)
+
+    return {"generated_text": generated}
 
 
 if __name__ == '__main__':
