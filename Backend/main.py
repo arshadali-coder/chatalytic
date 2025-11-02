@@ -77,36 +77,74 @@ def clean_whatsapp_chats(txt_path):
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
+    if 'myFile' not in request.files:
+        return {"status": "error", "message": "No file uploaded"}, 400
+    
     file = request.files['myFile']
     username = request.form.get('username')
+    
+    if file.filename == '':
+        return {"status": "error", "message": "No file selected"}, 400
 
-    # Save ZIP file
-    zip_file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(zip_file_path)
-
-    # Extract ZIP file
-    extract_to = UPLOAD_FOLDER
-    with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_to)
-
-    print(f"📂 Files extracted to: {extract_to}")
-
-    # Find the WhatsApp chat file automatically
+    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(file_path)
+    
+    files_to_delete = [file_path]
     txt_file_path = None
-    for f in os.listdir(extract_to):
-        if f.lower().endswith(".txt"):
-            txt_file_path = os.path.join(extract_to, f)
-            break
 
-    if not txt_file_path:
-        return {"status": "error", "message": "No .txt file found in ZIP"}, 400
+    # Check if uploaded file is a ZIP or TXT
+    if file.filename.lower().endswith('.zip'):
+        # Handle ZIP file
+        extract_to = UPLOAD_FOLDER
+        try:
+            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                zip_ref.extractall(extract_to)
+            print(f"📂 Files extracted to: {extract_to}")
+            
+            # Find the WhatsApp chat file automatically
+            for f in os.listdir(extract_to):
+                if f.lower().endswith(".txt"):
+                    txt_file_path = os.path.join(extract_to, f)
+                    files_to_delete.append(txt_file_path)
+                    break
+            
+            if not txt_file_path:
+                # Cleanup
+                for f in files_to_delete:
+                    if os.path.exists(f):
+                        os.remove(f)
+                return {"status": "error", "message": "No .txt file found in ZIP"}, 400
+        except zipfile.BadZipFile:
+            # Cleanup
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            return {"status": "error", "message": "Invalid ZIP file"}, 400
+    
+    elif file.filename.lower().endswith('.txt'):
+        # Handle direct TXT file upload
+        txt_file_path = file_path
+        print(f"📄 Direct TXT file uploaded: {txt_file_path}")
+    
+    else:
+        # Unsupported file type
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        return {"status": "error", "message": "Unsupported file type. Please upload a .txt or .zip file"}, 400
 
     # Parse the chat
-    parsed_data = clean_whatsapp_chats(txt_file_path)
+    try:
+        parsed_data = clean_whatsapp_chats(txt_file_path)
+    except Exception as e:
+        # Cleanup on error
+        for f in files_to_delete:
+            if os.path.exists(f):
+                os.remove(f)
+        return {"status": "error", "message": f"Error parsing chat: {str(e)}"}, 500
 
-    # Delete Files
-    os.remove(zip_file_path)
-    os.remove(txt_file_path)
+    # Delete files after successful parsing
+    for f in files_to_delete:
+        if os.path.exists(f):
+            os.remove(f)
 
     return {
         "status": "success",
@@ -114,6 +152,7 @@ def upload_file():
         "user": username,
         "parsed_data": parsed_data
     }
+
 
 if __name__ == '__main__':
     app.run(debug=True, port="6969")
