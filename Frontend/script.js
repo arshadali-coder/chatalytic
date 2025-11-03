@@ -7,10 +7,11 @@ const loading = document.getElementById('loading');
 let selectedFile = null;
 let chatData = null;
 let chatText = '';
-let sessionId = null; // Store session ID from backend
+let sessionId = null;
+let aiConversationHistory = []; // Synchronized conversation history
 
 // Backend API endpoints
-const BACKEND_URL = 'http://127.0.0.1:6969/';
+const BACKEND_URL = 'https://chatalytic.onrender.com';
 const UPLOAD_ENDPOINT = `${BACKEND_URL}/upload`;
 const AI_ENDPOINT = `${BACKEND_URL}/ai`;
 
@@ -66,8 +67,7 @@ document.addEventListener('input', function(e) {
 document.addEventListener('keydown', function(e) {
     if (e.target.classList.contains('chat-input') && e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        const isMobile = e.target.id === 'mobileUserInput';
-        sendMessage(isMobile);
+        sendMessage();
     }
 });
 
@@ -76,7 +76,7 @@ function processFile() {
 
     const formData = new FormData();
     formData.append("myFile", selectedFile);
-    formData.append("username", "User"); // Add username if needed
+    formData.append("username", "User");
 
     processBtn.style.display = 'none';
     loading.style.display = 'flex';
@@ -100,18 +100,16 @@ function processFile() {
             }
             
             chatData = data.parsed_data;
-            sessionId = data.session_id; // Store session ID
+            sessionId = data.session_id;
             
             console.log("✅ Chat Data Length:", chatData ? chatData.length : 0);
             console.log("✅ Session ID:", sessionId);
-            console.log("✅ Session ID Type:", typeof sessionId);
             
             if (!sessionId) {
                 console.error("❌ Session ID is missing from backend response!");
                 alert("Warning: Session ID not received from server. AI features may not work.");
             }
             
-            // Extract all chat text for AI context
             chatText = extractChatText(chatData);
             
             renderChat(chatData);
@@ -170,7 +168,8 @@ function showWelcome() {
     fileInput.value = '';
     chatData = null;
     chatText = '';
-    sessionId = null; // Clear session ID
+    sessionId = null;
+    aiConversationHistory = [];
     
     uploadArea.style.borderColor = '';
     uploadArea.style.background = '';
@@ -217,29 +216,76 @@ function renderChat(data) {
 }
 
 function askSuggestion(question) {
-    const isMobile = window.innerWidth < 1024;
-    const input = isMobile ? document.getElementById('mobileUserInput') : document.getElementById('desktopUserInput');
+    const input = window.innerWidth >= 1024 ? 
+        document.getElementById('desktopUserInput') : 
+        document.getElementById('userInput');
     input.value = question;
-    sendMessage(isMobile);
+    sendMessage();
 }
 
-async function sendMessage(isMobile) {
-    const inputId = isMobile ? 'mobileUserInput' : 'desktopUserInput';
-    const sendBtnId = isMobile ? 'mobileSendBtn' : 'desktopSendBtn';
-    const messagesId = isMobile ? 'chatMessages' : 'aiMessages';
+// Render AI conversation in both mobile and desktop views
+function renderAIConversation() {
+    const isMobile = window.innerWidth < 1024;
     
-    const userInput = document.getElementById(inputId);
-    const sendBtn = document.getElementById(sendBtnId);
-    const messagesContainer = document.getElementById(messagesId);
+    if (isMobile) {
+        // Render in chat messages (mobile)
+        const chatMessages = document.getElementById('chatMessages');
+        // Remove existing AI messages
+        const existingAIMessages = chatMessages.querySelectorAll('.ai-chat-message');
+        existingAIMessages.forEach(msg => msg.remove());
+        
+        // Add all AI conversation messages
+        aiConversationHistory.forEach(msg => {
+            const messageElement = document.createElement('div');
+            messageElement.className = `ai-chat-message ${msg.role}`;
+            messageElement.innerHTML = `<div class="ai-chat-bubble">${msg.content}</div>`;
+            chatMessages.appendChild(messageElement);
+        });
+    } else {
+        // Render in AI panel (desktop)
+        const aiMessages = document.getElementById('aiMessages');
+        // Remove welcome message
+        const welcome = aiMessages.querySelector('.ai-welcome');
+        if (welcome) welcome.remove();
+        
+        // Clear and render all messages
+        const existingMessages = aiMessages.querySelectorAll('.ai-message');
+        existingMessages.forEach(msg => msg.remove());
+        
+        aiConversationHistory.forEach(msg => {
+            const messageElement = document.createElement('div');
+            messageElement.className = `ai-message ${msg.role}`;
+            messageElement.innerHTML = `<div class="ai-message-bubble">${msg.content}</div>`;
+            aiMessages.appendChild(messageElement);
+        });
+    }
     
-    const message = userInput.value.trim();
+    // Scroll to bottom
+    scrollToBottom();
+}
+
+function scrollToBottom() {
+    const isMobile = window.innerWidth < 1024;
+    const container = isMobile ? 
+        document.getElementById('chatMessages') : 
+        document.getElementById('aiMessages');
+    container.scrollTop = container.scrollHeight;
+}
+
+async function sendMessage() {
+    const isMobile = window.innerWidth < 1024;
+    const input = isMobile ? 
+        document.getElementById('userInput') : 
+        document.getElementById('desktopUserInput');
+    const sendBtn = isMobile ? 
+        document.getElementById('sendBtn') : 
+        document.getElementById('desktopSendBtn');
+    
+    const message = input.value.trim();
     if (!message) return;
 
-    // Check if session exists with detailed logging
     console.log("🔍 Checking session before sending message...");
     console.log("Session ID:", sessionId);
-    console.log("Session ID Type:", typeof sessionId);
-    console.log("Session ID is null/undefined:", sessionId == null);
     
     if (!sessionId || sessionId === 'undefined') {
         alert('No active session. Please upload a chat file first.');
@@ -248,84 +294,61 @@ async function sendMessage(isMobile) {
     }
 
     // Clear input and disable send button
-    userInput.value = '';
-    userInput.style.height = 'auto';
+    input.value = '';
+    input.style.height = 'auto';
     sendBtn.disabled = true;
 
-    // For mobile, add message to chat messages area
-    if (isMobile) {
-        // Add user message as system notification
-        const userMsgElement = document.createElement('div');
-        userMsgElement.className = 'system-notification';
-        userMsgElement.style.background = 'rgba(102, 126, 234, 0.2)';
-        userMsgElement.style.color = 'var(--text-primary)';
-        userMsgElement.innerHTML = `<div><strong>You asked:</strong> ${message}</div>`;
-        messagesContainer.appendChild(userMsgElement);
-    } else {
-        // Remove welcome message if exists
-        const welcome = messagesContainer.querySelector('.ai-welcome');
-        if (welcome) welcome.remove();
+    // Add user message to history
+    aiConversationHistory.push({
+        role: 'user',
+        content: message
+    });
 
-        // Add user message
-        const userMsgElement = document.createElement('div');
-        userMsgElement.className = 'ai-message user';
-        userMsgElement.innerHTML = `<div class="ai-message-bubble">${message}</div>`;
-        messagesContainer.appendChild(userMsgElement);
-    }
+    // Render conversation
+    renderAIConversation();
 
-    // Show typing indicator
-    const typingIndicator = document.createElement('div');
-    typingIndicator.className = isMobile ? 'system-notification' : 'typing-indicator';
-    typingIndicator.style.display = isMobile ? 'block' : 'flex';
-    if (isMobile) {
-        typingIndicator.innerHTML = '<div><i class="fas fa-robot"></i> AI is thinking...</div>';
-    } else {
-        typingIndicator.innerHTML = `
-            <div class="typing-dots">
-                <div class="typing-dot"></div>
-                <div class="typing-dot"></div>
-                <div class="typing-dot"></div>
-            </div>
-        `;
-    }
-    messagesContainer.appendChild(typingIndicator);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    // Add typing indicator
+    const typingMsg = {
+        role: 'assistant',
+        content: `<div class="typing-dots">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+        </div>`,
+        isTyping: true
+    };
+    aiConversationHistory.push(typingMsg);
+    renderAIConversation();
 
     try {
         // Call Gemini API via backend
         const response = await callGeminiAPI(message);
         
         // Remove typing indicator
-        typingIndicator.remove();
+        aiConversationHistory = aiConversationHistory.filter(msg => !msg.isTyping);
 
-        // Add AI response
-        const aiMsgElement = document.createElement('div');
-        if (isMobile) {
-            aiMsgElement.className = 'system-notification';
-            aiMsgElement.style.background = 'rgba(240, 147, 251, 0.15)';
-            aiMsgElement.style.maxWidth = '90%';
-            aiMsgElement.innerHTML = `<div style="white-space: pre-wrap; text-align: left;">${formatMarkdown(response)}</div>`;
-        } else {
-            aiMsgElement.className = 'ai-message assistant';
-            aiMsgElement.innerHTML = `<div class="ai-message-bubble">${formatMarkdown(response)}</div>`;
-        }
-        messagesContainer.appendChild(aiMsgElement);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        // Add AI response to history
+        aiConversationHistory.push({
+            role: 'assistant',
+            content: formatMarkdown(response)
+        });
+
+        // Render conversation
+        renderAIConversation();
 
     } catch (error) {
         console.error('Error:', error);
-        typingIndicator.remove();
         
-        const errorMsgElement = document.createElement('div');
-        if (isMobile) {
-            errorMsgElement.className = 'system-notification';
-            errorMsgElement.style.background = 'rgba(255, 82, 82, 0.15)';
-            errorMsgElement.innerHTML = `<div>Error: ${error.message}</div>`;
-        } else {
-            errorMsgElement.className = 'ai-message assistant';
-            errorMsgElement.innerHTML = `<div class="ai-message-bubble">Sorry, I encountered an error: ${error.message}</div>`;
-        }
-        messagesContainer.appendChild(errorMsgElement);
+        // Remove typing indicator
+        aiConversationHistory = aiConversationHistory.filter(msg => !msg.isTyping);
+        
+        // Add error message
+        aiConversationHistory.push({
+            role: 'assistant',
+            content: `Sorry, I encountered an error: ${error.message}`
+        });
+        
+        renderAIConversation();
     }
 
     // Re-enable send button
@@ -361,7 +384,6 @@ async function callGeminiAPI(userMessage) {
 
         if (!response.ok) {
             if (response.status === 404) {
-                // Session expired
                 sessionId = null;
                 throw new Error('Session expired. Please upload your chat file again.');
             }
@@ -381,12 +403,10 @@ async function callGeminiAPI(userMessage) {
             return data.generated_text;
         }
 
-        // Fallback to local analysis if API returns no text
         return getLocalAnalysis(userMessage);
 
     } catch (error) {
         console.error('❌ Error contacting AI:', error);
-        // Try local fallback
         if (chatData && chatData.length > 0) {
             console.log("Using local analysis fallback");
             return getLocalAnalysis(userMessage);
@@ -516,3 +536,14 @@ function findCommonWords(messages) {
         .map(([word, count]) => ({ word, count }))
         .sort((a, b) => b.count - a.count);
 }
+
+// Handle window resize to re-render conversation in appropriate view
+let resizeTimer;
+window.addEventListener('resize', function() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+        if (aiConversationHistory.length > 0) {
+            renderAIConversation();
+        }
+    }, 250);
+});
