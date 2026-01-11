@@ -2,7 +2,8 @@ import zipfile
 import os
 import re
 import json
-import uuid
+import uuid, dotenv
+dotenv.load_dotenv()
 from datetime import datetime, timedelta
 from collections import defaultdict
 from flask import Flask, request, jsonify
@@ -247,56 +248,103 @@ def ai_proxy():
     print(f"✅ Session found")
     print(f"📚 Conversation history: {len(conversation_history)} messages")
 
-    api_key = os.environ.get('GEMINI_API_KEY')
+    api_key = os.getenv('GEMINI_API_KEY', '')
     if not api_key:
         print("❌ No GEMINI_API_KEY configured")
         return jsonify({"error": "GEMINI_API_KEY not configured on server"}), 500
 
     # Gemini API endpoint
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
     headers = {
         'Content-Type': 'application/json'
     }
 
     # Build the contents array for Gemini
-    contents = []
+    # contents = []
     
-    # System prompt for the first message
-    system_prompt = (
-        "You are a helpful WhatsApp chat analyzer assistant. "
-        "You have access to the following chat data and should use it to answer questions accurately.\n\n"
-        f"Chat Data:\n{chat_summary}\n\n"
-        "Provide clear, concise, and helpful answers based on the chat data. "
-        "Format your answers in markdown and keep them under 500 words."
-    )
+    # # System prompt for the first message
+    # system_prompt = (
+    #     "You are a helpful WhatsApp chat analyzer assistant. "
+    #     "You have access to the following chat data and should use it to answer questions accurately.\n\n"
+    #     f"Chat Data:\n{chat_summary}\n\n"
+    #     "Provide clear, concise, and helpful answers based on the chat data. "
+    #     "Format your answers in markdown and keep them under 500 words."
+    # )
     
-    # If this is the first message in the conversation
-    if not conversation_history:
-        contents.append({
-            "role": "user",
-            "parts": [{"text": f"{system_prompt}\n\nUser Question: {user_message}"}]
-        })
-    else:
-        # Add conversation history
-        for msg in conversation_history:
-            role = msg.get('role', 'user')
-            text = msg.get('text', '')
+    # # If this is the first message in the conversation
+    # if not conversation_history:
+    #     contents.append({
+    #         "role": "user",
+    #         "parts": [{"text": f"{system_prompt}\n\nUser Question: {user_message}"}]
+    #     })
+    # else:
+    #     # Add conversation history
+    #     for msg in conversation_history:
+    #         role = msg.get('role', 'user')
+    #         text = msg.get('text', '')
             
-            if role in ['user', 'model']:
-                contents.append({
-                    "role": role,
-                    "parts": [{"text": text}]
-                })
+    #         if role in ['user', 'model']:
+    #             contents.append({
+    #                 "role": role,
+    #                 "parts": [{"text": text}]
+    #             })
         
-        # Add the new user message
-        contents.append({
-            "role": "user",
-            "parts": [{"text": user_message}]
-        })
+    #     # Add the new user message
+    #     contents.append({
+    #         "role": "user",
+    #         "parts": [{"text": user_message}]
+    #     })
     
+    # print(f"📤 Calling Gemini API - Message #{len(conversation_history)//2 + 1}")
+    # print(f"🔑 Contents : {contents}")
+
+    # body = {
+    #     "contents": contents,
+    #     "generationConfig": {
+    #         "temperature": 0.7,
+    #         "topK": 40,
+    #         "topP": 0.95,
+    #         "maxOutputTokens": 1024,
+    #     }
+    # }
+    # Build the contents array for Gemini
+    contents = []
+
+    # ALWAYS inject system context as first USER message
+    system_prompt = (
+        "You are a helpful WhatsApp chat analyzer assistant.\n"
+        "You have access to the following chat data and must use it for EVERY response.\n\n"
+        f"CHAT SUMMARY:\n{chat_summary}\n\n"
+        "Rules:\n"
+        "- Answer strictly using the chat data\n"
+        "- Be concise and accurate\n"
+        "- Use markdown\n"
+        "- Max 500 words\n"
+    )
+
+    contents.append({
+        "role": "user",
+        "parts": [{"text": system_prompt}]
+    })
+
+    # Replay conversation history
+    for msg in conversation_history:
+        role = msg.get("role")
+        text = msg.get("text", "")
+        if role in ("user", "model"):
+            contents.append({
+                "role": role,
+                "parts": [{"text": text}]
+            })
+
+    # Add latest user message
+    contents.append({
+        "role": "user",
+        "parts": [{"text": user_message}]
+    })
     print(f"📤 Calling Gemini API - Message #{len(conversation_history)//2 + 1}")
-    
+    print(f"🔑 Contents : {contents}")
     body = {
         "contents": contents,
         "generationConfig": {
@@ -306,6 +354,7 @@ def ai_proxy():
             "maxOutputTokens": 1024,
         }
     }
+    print(json.dumps(contents, indent=2))
 
     try:
         resp = requests.post(url, headers=headers, json=body, timeout=60)
